@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:giav="Giav.Core.Business" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <giav:Cliente_SEARCH>
+         
+         <giav:apikey>MIAPIKEY</giav:apikey>
+         <!--Optional:-->
+         <giav:idsCliente/>
+         <!--Optional:-->
+         <giav:filtroNombre/>
+         <!--Optional:-->
+         <giav:filtroDocumento>DNICLIENTEWEB</giav:filtroDocumento>
+         <!--Optional:-->
+         <giav:filtroTipoDocumento/>
+         <!--Optional:-->
+         <giav:filtroEmail/>
+         <!--Optional:-->
+         <giav:filtroTelefono/>
+         <!--Optional:-->
+         <giav:filtroIdsTipoCliente/>
+         <!--Optional:-->
+         <giav:filtroIdsOficinaCreacion/>
+         <!--Optional:-->
+         <giav:filtroIdsAgenteComercial/>
+         <!--Optional:-->
+         <giav:filtroNombreDepartamento/>
+         <!--Optional:-->
+         <giav:filtroCodCliente/>
+         <giav:documentoExacto>true</giav:documentoExacto>
+         <giav:incluirDeshabilitados>false</giav:incluirDeshabilitados>
+         <giav:pageSize>50</giav:pageSize>
+         <giav:pageNumber>0</giav:pageNumber>
+      </giav:Cliente_SEARCH>
+   </soapenv:Body>
+</soapenv:Envelope>

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:giav="Giav.Core.Business" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <giav:Cliente_POST>         
+         <giav:apikey>MIAPIKEY</giav:apikey>
+         <!-- Values: NoDefinido or Empresa or Particular or ProfesionalAutónomo -->
+         <giav:tipoCliente>Particular</giav:tipoCliente>
+         <!--Optional:-->
+         <giav:documento>00000000A</giav:documento>
+         <!--Optional:-->
+         <giav:pasaporteNumero/>
+         <!--Optional: Format: yyyy-MM-dd -->
+         <giav:pasaporteCaducidad/>
+         <!--Optional:-->
+         <giav:codCliente/>
+         <!--Optional:-->
+         <giav:email>myemail@test.com</giav:email>
+         <!--Optional:-->
+         <giav:apellidos>Jonatan</giav:apellidos>
+         <!--Optional:-->
+         <giav:nombre>Gonzalez Borrás</giav:nombre>
+         <!--Optional:-->
+         <giav:nombreAlias/>
+         <!--Optional:-->
+         <giav:direccion>C/Carlos de Cepeda 2, 2 º4</giav:direccion>
+         <!--Optional:-->
+         <giav:telefono>954929512</giav:telefono>
+         <!--Optional:-->
+         <giav:fax/>
+         <!--Optional:-->
+         <giav:codPostal>41005</giav:codPostal>
+         <!--Optional:-->
+         <giav:poblacion>Sevilla</giav:poblacion>
+         <!--Optional:-->
+         <giav:provincia>Sevilla</giav:provincia>
+         <!--Optional:-->
+         <giav:pais>España</giav:pais>
+         <!--Optional:-->
+         <giav:personaContacto/>
+         <!--Optional:-->
+         <giav:codCC/>
+         <giav:creditoImporte>0</giav:creditoImporte>
+         <!--Optional:-->
+         <giav:comentarios>Cliente web</giav:comentarios>
+         <!--Optional:-->
+         <giav:movil/>
+         <!--Optional: Format: yyyy-MM-dd-->
+         <giav:fechaNacimiento/>
+         <giav:empresa_Facturar_Reg_General>false</giav:empresa_Facturar_Reg_General>
+         <!--Optional: Format: ISO 3166-2 -->
+         <giav:sedeFiscal>ES</giav:sedeFiscal>
+         <giav:subSedeFiscal xsi:nil="true"/>
+         <giav:comisionesIVAIncluido>false</giav:comisionesIVAIncluido>
+         <giav:comisionesComisionDefecto xsi:nil="true"/>
+         <giav:excluir_347_349>true</giav:excluir_347_349>
+         <giav:idAgenteComercial xsi:nil="true"/>
+         <giav:validaAeat>false</giav:validaAeat>
+         <giav:validaDuplicidadNif>false</giav:validaDuplicidadNif>
+      </giav:Cliente_POST>
+   </soapenv:Body>
+</soapenv:Envelope>

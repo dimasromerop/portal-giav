@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:giav="Giav.Core.Business" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <giav:Reserva_Normal_POST>         
+         <giav:apikey>MIAPIKEY</giav:apikey>
+         <giav:idExpediente>402191</giav:idExpediente>
+         <giav:idCliente>62660</giav:idCliente>
+         <giav:idProveedor>375388</giav:idProveedor>
+         <giav:idProducto xsi:nil="true"/>
+         <giav:idGastoGestion xsi:nil="true"/>
+         <giav:idAgenteComercial xsi:nil="true"/>
+         <!--Values: HT or RC or BU or CI or CR or DE or OT or RT or SG or PQ -->
+         <giav:tipoReserva>HT</giav:tipoReserva>
+         <!--If tipoReserva is OT then Values: Aparcamientos or Comisiones or CrucerosFluviales or EntradasEspectáculosYMonumentos or EntradasMuseosBibliotecasYGaleríasArte or Excursiones or GuíasTurísticos or Traslados or Visados or Suplidos or Otros -->
+         <giav:subtipoReserva xsi:nil="true"/>
+         <!--Optional:-->
+         <giav:descripcion>Hotel Meliá Lebreros</giav:descripcion>
+         <!--Optional:-->
+         <giav:textoBono/>
+         <!--Optional:-->
+         <giav:observaciones/>
+         <!--Values: C or I or P (Credito, Inmediato, Prepago)-->
+         <giav:codModalidadpago>C</giav:codModalidadpago>
+         <!--Optional: Format: yyyy-MM-dd -->
+         <giav:fechaPrepago/>
+         <!--Optional:-->
+         <giav:pagaderoPor/>
+         <giav:ventacomis>300.00</giav:ventacomis>
+         <giav:costeComis>250.30</giav:costeComis>
+         <giav:ventaNoComis>0</giav:ventaNoComis>
+         <giav:costeNoComis>0</giav:costeNoComis>
+         <giav:porcComisionCliente>0</giav:porcComisionCliente>
+         <giav:gastosGestion>0</giav:gastosGestion>
+         <giav:recuperacion>0</giav:recuperacion>
+         <!--Values: G or R or E or I -->
+         <giav:tipoIVA xsi:nil="true"/>
+         <!--Optional:-->
+         <giav:rooming/>
+         <!--Optional: Format: yyyy-MM-dd -->
+         <giav:fechadesde>2021-05-01</giav:fechadesde>
+         <!--Optional: Format: yyyy-MM-dd -->
+         <giav:fechahasta>2021-05-03</giav:fechahasta>
+         <!--Optional: Format: yyyy-MM-dd -->
+         <giav:fechalimite/>
+         <!--Values: AD or SA or MP or PC or TI or SP (Aloj y Desayuno, Solo Alojamiento, Media Pensión, Pensión Completa, Todo Incluido, Según Programa)-->
+         <giav:regimen>AD</giav:regimen>
+         <!--Values: IN or DB or DU or TR or CU or AP (Individual, Doble, Doble Uso Individual, Triple, Cuadruple, Apartamento)-->
+         <giav:uso1>DB</giav:uso1>
+         <!--Values: IN or DB or DU or TR or CU or AP (Individual, Doble, Doble Uso Individual, Triple, Cuadruple, Apartamento)-->
+         <giav:uso2 xsi:nil="true"/>
+         <!--Values: IN or DB or DU or TR or CU or AP (Individual, Doble, Doble Uso Individual, Triple, Cuadruple, Apartamento)-->
+         <giav:uso3 xsi:nil="true"/>
+         <!--Values: IN or DB or DU or TR or CU or AP (Individual, Doble, Doble Uso Individual, Triple, Cuadruple, Apartamento)-->
+         <giav:uso4 xsi:nil="true"/>
+         <giav:num1>1</giav:num1>
+         <giav:num2 xsi:nil="true"/>
+         <giav:num3 xsi:nil="true"/>
+         <giav:num4 xsi:nil="true"/>
+         <!--Optional:-->
+         <giav:clienteBono/>
+         <!--Optional:-->
+         <giav:localizador>XJD23</giav:localizador>
+         <!--Optional:-->
+         <giav:via>API XML</giav:via>
+         <giav:numPax>2</giav:numPax>
+         <giav:numAdultos>2</giav:numAdultos>
+         <giav:numNinos>1</giav:numNinos>
+         <!--Values: Nacional or CanCeuMel or UniónEuropea or RestoMundo -->
+         <giav:Destino>Nacional</giav:Destino>
+         <!--Optional:-->
+         <giav:CodSolicitud/>
+         <giav:servicioOtrosOtrosREAV>false</giav:servicioOtrosOtrosREAV>
+      </giav:Reserva_Normal_POST>
+   </soapenv:Body>
+</soapenv:Envelope>
