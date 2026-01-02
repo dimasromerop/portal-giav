@@ -120,6 +120,7 @@ require_once CASANOVA_GIAV_PLUGIN_PATH . 'includes/portal-bonos.php';
     require_once CASANOVA_GIAV_PLUGIN_PATH . 'includes/portal-payments-actions.php';
   require_once CASANOVA_GIAV_PLUGIN_PATH . 'includes/portal-payments-tpv.php';
   require_once CASANOVA_GIAV_PLUGIN_PATH . 'includes/portal-payments-cron.php';
+  require_once CASANOVA_GIAV_PLUGIN_PATH . 'includes/portal-calendar.php';
 
 });
 // Toast notice (post-redirect feedback)
