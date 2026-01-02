@@ -2,46 +2,57 @@
 
 /**
  * GIAV: buscar expedientes de un cliente
- * Usa Expediente_SEARCH con idsCliente (ArrayOfInt) :contentReference[oaicite:3]{index=3}
+ * Usa Expediente_SEARCH con idsCliente (ArrayOfInt)
+ * @param int $year (Opcional) Filtra por año de salida (1 de Ene a 31 de Dic).
  */
-function casanova_giav_expedientes_por_cliente(int $idCliente, int $pageSize = 50, int $pageIndex = 0) {
+function casanova_giav_expedientes_por_cliente(int $idCliente, int $pageSize = 50, int $pageIndex = 0, ?int $year = null) {
   // GIAV limita pageSize a 100 (hard cap).
   $pageSize  = max(1, min(100, (int)$pageSize));
   $pageIndex = max(0, (int)$pageIndex);
 
+  // Clave de caché incluye el año para evitar mezclar listados
+  $cache_key = 'giav:expedientes_por_cliente:' . $idCliente . ':' . $pageSize . ':' . $pageIndex . ':' . ($year ?? 'all');
 
   // Cache corta (mejora UX y reduce llamadas SOAP)
   if (function_exists('casanova_cache_remember')) {
     return casanova_cache_remember(
-      'giav:expedientes_por_cliente:' . $idCliente . ':' . $pageSize . ':' . $pageIndex,
-      defined('CASANOVA_CACHE_TTL') ? (int)CASANOVA_CACHE_TTL : 90,
-      function () use ($idCliente, $pageSize, $pageIndex) {
-        return casanova_giav_expedientes_por_cliente_uncached($idCliente, $pageSize, $pageIndex);
+      $cache_key,
+      defined('CASANOVA_CACHE_TTL') ? (int)CASANOVA_CACHE_TTL : 300,
+      function () use ($idCliente, $pageSize, $pageIndex, $year) {
+        return casanova_giav_expedientes_por_cliente_uncached($idCliente, $pageSize, $pageIndex, $year);
       }
     );
   }
 
-  return casanova_giav_expedientes_por_cliente_uncached($idCliente, $pageSize, $pageIndex);
+  return casanova_giav_expedientes_por_cliente_uncached($idCliente, $pageSize, $pageIndex, $year);
 }
 
 /**
  * Implementación real (sin cache). Separada para poder envolver con transients.
  */
-function casanova_giav_expedientes_por_cliente_uncached(int $idCliente, int $pageSize = 50, int $pageIndex = 0) {
+function casanova_giav_expedientes_por_cliente_uncached(int $idCliente, int $pageSize = 50, int $pageIndex = 0, ?int $year = null) {
 
   $p = new stdClass();
   $p->apikey = CASANOVA_GIAV_APIKEY;
 
-  // ✅ ArrayOfInt en formato SOAP: <idsCliente><int>...</int></idsCliente>
+  // ✅ ArrayOfInt en formato SOAP
   $p->idsCliente = (object) ['int' => [$idCliente]];
 
   $p->pageSize  = $pageSize;
   $p->pageIndex = $pageIndex;
 
-  // Obligatorio por encoding + valores válidos
-  $p->modoMultiFiltroFecha  = 'Salida';
-  $p->multiFiltroFechaDesde = null;
-  $p->multiFiltroFechaHasta = null;
+  // Filtro por FECHA
+  $p->modoMultiFiltroFecha = 'Salida'; 
+
+  if ($year && $year > 2000) {
+    // CORRECCIÓN: Enviamos solo la fecha (yyyy-MM-dd) sin hora para evitar error SOAP
+    $p->multiFiltroFechaDesde = $year . '-01-01';
+    $p->multiFiltroFechaHasta = $year . '-12-31';
+  } else {
+    // Nillable explícito para no filtrar
+    $p->multiFiltroFechaDesde = null;
+    $p->multiFiltroFechaHasta = null;
+  }
 
   $p->facturacionPendiente = 'NoAplicar';
   $p->cobroPendiente       = 'NoAplicar';
@@ -66,7 +77,7 @@ function casanova_giav_expedientes_por_cliente_uncached(int $idCliente, int $pag
 
 
 /**
- * Shortcode: lista expedientes del usuario logueado
+ * Shortcode: lista expedientes del usuario logueado con filtro de año.
  */
 add_shortcode('casanova_expedientes', function($atts) {
   if (!is_user_logged_in()) return '<p>' . esc_html__('Debes iniciar sesión.', 'casanova-portal') . '</p>';
@@ -78,78 +89,130 @@ add_shortcode('casanova_expedientes', function($atts) {
     return '<p>' . esc_html__('No tienes la cuenta vinculada todavía.', 'casanova-portal') . '</p>';
   }
 
-  $items = casanova_giav_expedientes_por_cliente($idCliente, 50, 0);
+  // --- Lógica del Filtro Inteligente ---
+  $current_year = (int)date('Y');
+  
+  // 1. Intentamos coger el periodo de la URL
+  $selected_year = isset($_GET['periodo']) ? (int)$_GET['periodo'] : 0;
+
+  // 2. Si no hay periodo pero sí hay expediente (ej. vengo del Dashboard),
+  // detectamos el año de ese expediente para mostrarlo.
+  if ($selected_year <= 0 && isset($_GET['expediente'])) {
+    $reqExp = (int)$_GET['expediente'];
+    if ($reqExp > 0 && function_exists('casanova_giav_expediente_get')) {
+      $e = casanova_giav_expediente_get($reqExp);
+      if ($e && !is_wp_error($e)) {
+        // Usamos FechaInicio (o FechaDesde) para determinar el año
+        $d = $e->FechaInicio ?? $e->FechaDesde ?? null;
+        if ($d) {
+          $ts = strtotime((string)$d);
+          if ($ts) {
+            $y = (int)date('Y', $ts);
+            if ($y > 2000) $selected_year = $y;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Fallback: Año actual
+  if ($selected_year <= 0) {
+    $selected_year = $current_year;
+  }
+  
+  // Rango de años para el select
+  $years = range($current_year + 1, 2020); 
+
+  // Petición a GIAV filtrada
+  $items = casanova_giav_expedientes_por_cliente($idCliente, 50, 0, ($selected_year > 0 ? $selected_year : null));
+
+  // --- Renderizado ---
+  ob_start();
+  
+  // Barra de herramientas (Filtro)
+  echo '<div class="casanova-toolbar" style="margin-bottom:20px; display:flex; align-items:center; justify-content:flex-end;">';
+    echo '<form method="get" class="casanova-filter-form" style="display:flex; align-items:center; gap:10px;">';
+      echo '<input type="hidden" name="view" value="expedientes">';
+      
+      // CAMBIO: Eliminamos el input hidden de "expediente".
+      // Al cambiar de año (submit del form), la URL se limpiará de ?expediente=...
+      // y se mostrará solo el listado del año seleccionado, sin detalle activo.
+      
+      echo '<label for="periodo-select" style="font-weight:600; font-size:14px;">' . esc_html__('Año:', 'casanova-portal') . '</label>';
+      
+      // Select sin onchange (manejado por JS portal.js para el overlay)
+      echo '<select name="periodo" id="periodo-select" style="padding:6px 30px 6px 12px; border-radius:8px; border:1px solid #ddd; font-weight:600;">';
+        foreach ($years as $y) {
+          echo '<option value="' . esc_attr($y) . '" ' . selected($selected_year, $y, false) . '>' . esc_html($y) . '</option>';
+        }
+      echo '</select>';
+    echo '</form>';
+  echo '</div>';
 
   if (is_wp_error($items)) {
-    return '<p>' . esc_html__('No se han podido cargar tus expedientes. Inténtalo más tarde.', 'casanova-portal') . '</p>';
+    echo '<div class="casanova-alert casanova-alert--warn">' . esc_html__('No se han podido cargar los expedientes. Inténtalo más tarde.', 'casanova-portal') . '</div>';
+    return ob_get_clean();
   }
 
   if (empty($items)) {
-    return '<p>' . esc_html__('No hay expedientes asociados a tu cuenta.', 'casanova-portal') . '</p>';
+    echo '<div class="casanova-card casanova-card--empty"><div class="casanova-card__body" style="text-align:center; padding:40px;">';
+    echo '<div class="casanova-muted">' . sprintf(esc_html__('No hay viajes registrados en %s.', 'casanova-portal'), $selected_year) . '</div>';
+    echo '</div></div>';
+    return ob_get_clean();
   }
 
-  // Ordenar por FechaCreacion desc (si viene)
+  // Ordenar y renderizar
   usort($items, function($a, $b) {
-    $da = isset($a->FechaCreacion) ? strtotime((string)$a->FechaCreacion) : 0;
-    $db = isset($b->FechaCreacion) ? strtotime((string)$b->FechaCreacion) : 0;
+    $da = isset($a->FechaInicio) ? strtotime((string)$a->FechaInicio) : (isset($a->FechaCreacion) ? strtotime((string)$a->FechaCreacion) : 0);
+    $db = isset($b->FechaInicio) ? strtotime((string)$b->FechaInicio) : (isset($b->FechaCreacion) ? strtotime((string)$b->FechaCreacion) : 0);
     return $db <=> $da;
   });
 
   $active_id = isset($_GET['expediente']) ? (int)$_GET['expediente'] : 0;
 
-  ob_start();
-  // Drawer-ready wrapper (mobile). Safe even if you render it inside Bricks columns.
   echo '<div class="casanova-portal casanova-expedientes casanova-expedientes--drawer">';
   foreach ($items as $e) {
-  $id      = (int) ($e->Id ?? 0);
-  $codigo  = esc_html($e->Codigo ?? '');
-  $titulo  = esc_html($e->Titulo ?? '');
-  $destino = esc_html($e->Destino ?? '');
-  $cerrado = !empty($e->Cerrado) ? 'Cerrado' : 'Abierto';
-  $state_cls = !empty($e->Cerrado) ? 'is-closed' : 'is-open';
+    $id      = (int) ($e->Id ?? 0);
+    $codigo  = esc_html($e->Codigo ?? '');
+    $titulo  = esc_html($e->Titulo ?? '');
+    $destino = esc_html($e->Destino ?? '');
+    $cerrado = !empty($e->Cerrado) ? 'Cerrado' : 'Abierto';
+    $state_cls = !empty($e->Cerrado) ? 'is-closed' : 'is-open';
 
-  $desde = !empty($e->FechaDesde) ? date_i18n('d/m/Y', strtotime((string)$e->FechaDesde)) : '';
-  $hasta = !empty($e->FechaHasta) ? date_i18n('d/m/Y', strtotime((string)$e->FechaHasta)) : '';
-  $rango = trim($desde . ($hasta ? ' – ' . $hasta : ''));
+    $desde = !empty($e->FechaDesde) ? date_i18n('d/m/Y', strtotime((string)$e->FechaDesde)) : '';
+    $hasta = !empty($e->FechaHasta) ? date_i18n('d/m/Y', strtotime((string)$e->FechaHasta)) : '';
+    $rango = trim($desde . ($hasta ? ' – ' . $hasta : ''));
 
-  $base = function_exists('casanova_portal_base_url') ? casanova_portal_base_url() : home_url('/area-usuario/');
+    $base = function_exists('casanova_portal_base_url') ? casanova_portal_base_url() : home_url('/area-usuario/');
+    
+    $view = 'expedientes';
+    $url  = add_query_arg([
+      'view' => $view, 
+      'expediente' => $id,
+      'periodo' => $selected_year
+    ], $base);
 
-  // Si estamos usando el router (?view=...), al pinchar en un expediente
-  // debemos mantener/forzar la vista de "expedientes". Si no, el router
-  // cae al default (Principal) y parece que "no carga nada".
-  $view = isset($_GET['view']) ? sanitize_key((string)$_GET['view']) : '';
-  if ($view === '') $view = 'expedientes';
+    $is_active = ($active_id > 0 && $id === $active_id);
+    $cls = 'casanova-expediente-card' . ($is_active ? ' is-active' : '');
 
-  $url  = add_query_arg(['view' => $view, 'expediente' => $id], $base);
-
-
-  $is_active = ($active_id > 0 && $id === $active_id);
-  $cls = 'casanova-expediente-card' . ($is_active ? ' is-active' : '');
-
-  echo '<a class="' . esc_attr($cls) . '" data-casanova-expediente-link href="' . esc_url($url) . '">';
-    echo '<div class="casanova-expediente-card__row">';
-      echo '<div class="casanova-expediente-card__main">';
-        echo '<div class="casanova-expediente-card__title">' . esc_html($titulo ?: (sprintf(__('Expediente %s', 'casanova-portal'), $codigo))) . '</div>';
-        echo '<div class="casanova-expediente-card__meta">' . $codigo . ($destino ? ' · ' . $destino : '') . ($rango ? ' · ' . $rango : '') . '</div>';
+    echo '<a class="' . esc_attr($cls) . '" data-casanova-expediente-link href="' . esc_url($url) . '">';
+      echo '<div class="casanova-expediente-card__row">';
+        echo '<div class="casanova-expediente-card__main">';
+          echo '<div class="casanova-expediente-card__title">' . esc_html($titulo ?: (sprintf(__('Expediente %s', 'casanova-portal'), $codigo))) . '</div>';
+          echo '<div class="casanova-expediente-card__meta">' . $codigo . ($destino ? ' · ' . $destino : '') . ($rango ? ' · ' . $rango : '') . '</div>';
+        echo '</div>';
+        echo '<div class="casanova-expediente-card__right">';
+          echo '<div class="casanova-expediente-card__state ' . esc_attr($state_cls) . '">' . esc_html($cerrado) . '</div>';
+          echo '<div class="casanova-expediente-card__chev" aria-hidden="true">›</div>';
+        echo '</div>';
       echo '</div>';
-      echo '<div class="casanova-expediente-card__right">';
-        echo '<div class="casanova-expediente-card__state ' . esc_attr($state_cls) . '">' . esc_html($cerrado) . '</div>';
-        echo '<div class="casanova-expediente-card__chev" aria-hidden="true">›</div>';
-      echo '</div>';
-    echo '</div>';
-  echo '</a>';
-}
-
+    echo '</a>';
+  }
   echo '</div>';
 
   return ob_get_clean();
 });
 
-/**
- * Header del expediente activo (pensado para la columna derecha / tabs)
- * - Móvil: botón abre el drawer de expedientes
- * - Desktop: muestra el contexto (código/título)
- */
 add_shortcode('casanova_expediente_header', function() {
   if (!is_user_logged_in()) return '';
 
@@ -164,7 +227,6 @@ add_shortcode('casanova_expediente_header', function() {
   if ($idExp > 0 && function_exists('casanova_giav_expediente_get')) {
     $exp = casanova_giav_expediente_get($idExp);
     if (!is_wp_error($exp) && is_object($exp)) {
-      // Seguridad básica si viene IdCliente
       if (!isset($exp->IdCliente) || (int)$exp->IdCliente === $idCliente) {
         $codigo = trim((string)($exp->Codigo ?? ''));
         $titulo = trim((string)($exp->Titulo ?? ''));
@@ -189,7 +251,7 @@ add_shortcode('casanova_expediente_header', function() {
         . ' <span class="casanova-exp-header__chev" aria-hidden="true">▾</span>'
         . '</button>';
   $html .= '  <div class="casanova-exp-header__text">';
-  $html .= '    <div class="casanova-exp-header__title">' . esc_html($title) . '</div>';
+  $html .= '    <div class="casanova-expediente-head__title">' . esc_html($title) . '</div>';
   if ($meta !== '') {
     $html .= '    <div class="casanova-exp-header__meta">' . esc_html($meta) . '</div>';
   }
@@ -199,21 +261,33 @@ add_shortcode('casanova_expediente_header', function() {
   $html .= '  </div>';
   $html .= '</div>';
 
-  // Backdrop for mobile drawer. (El overlay de loading lo montas en Bricks para cubrir solo las tabs.)
   $html .= '<div class="casanova-drawer-backdrop" data-casanova-close-drawer></div>';
 
   return $html;
 });
 
+/**
+ * Trae un expediente por ID.
+ * OPTIMIZADO: Con caché para que la auto-detección del año en el listado sea instantánea.
+ */
 function casanova_giav_expediente_get(int $idExpediente) {
+  if (function_exists('casanova_cache_remember')) {
+    return casanova_cache_remember(
+      'giav:expediente_get:' . $idExpediente,
+      300, // 5 min cache
+      function () use ($idExpediente) {
+        return casanova_giav_expediente_get_uncached($idExpediente);
+      }
+    );
+  }
+  return casanova_giav_expediente_get_uncached($idExpediente);
+}
 
+function casanova_giav_expediente_get_uncached(int $idExpediente) {
   $p = new stdClass();
   $p->apikey = CASANOVA_GIAV_APIKEY;
+  $p->idsExpediente = (object) ['int' => [(int)$idExpediente]];
 
-  // Filtramos por id de expediente
- $p->idsExpediente = (object) ['int' => [(int)$idExpediente]];
-
-  // Campos obligatorios/enums (para evitar el SOAP “me falta propiedad”)
   $p->modoMultiFiltroFecha   = 'Salida';
   $p->multiFiltroFechaDesde  = null;
   $p->multiFiltroFechaHasta  = null;
@@ -243,7 +317,6 @@ function casanova_giav_expediente_get(int $idExpediente) {
 }
 
 add_shortcode('casanova_expediente_detalle', function() {
-
   if (!is_user_logged_in()) return '<p>' . esc_html__('Debes iniciar sesión.', 'casanova-portal') . '</p>';
 
   $user_id   = get_current_user_id();
@@ -252,20 +325,13 @@ add_shortcode('casanova_expediente_detalle', function() {
   if (!$idCliente) return '<p>' . esc_html__('No tienes la cuenta vinculada todavía.', 'casanova-portal') . '</p>';
 
   $idExp = isset($_GET['expediente']) ? (int) $_GET['expediente'] : 0;
-  if (!$idExp) return ''; // no muestra nada si no hay expediente seleccionado
+  if (!$idExp) return '';
 
   $exp = casanova_giav_expediente_get($idExp);
 
-  if (is_wp_error($exp)) {
-    return '<p>' . esc_html__('No se ha podido cargar el expediente. Inténtalo más tarde.', 'casanova-portal') . '</p>';
-  }
+  if (is_wp_error($exp)) return '<p>' . esc_html__('No se ha podido cargar el expediente.', 'casanova-portal') . '</p>';
+  if (!$exp) return '<p>' . esc_html__('Expediente no encontrado.', 'casanova-portal') . '</p>';
 
-  if (!$exp) {
-    return '<p>' . esc_html__('Expediente no encontrado.', 'casanova-portal') . '</p>';
-  }
-
-  // Seguridad básica: asegurarnos de que el expediente es del cliente logueado
-  // (si viene el IdCliente en la respuesta, lo comprobamos)
   if (isset($exp->IdCliente) && (int)$exp->IdCliente !== $idCliente) {
     return '<p>' . esc_html__('No tienes acceso a este expediente.', 'casanova-portal') . '</p>';
   }
@@ -284,8 +350,12 @@ add_shortcode('casanova_expediente_detalle', function() {
     $obs = wp_kses_post(nl2br(esc_html((string)$exp->Observaciones)));
   }
 
-$backUrl = remove_query_arg('expediente', function_exists('casanova_portal_base_url') ? casanova_portal_base_url() : home_url('/area-usuario/'));
-
+  // Mantenemos el parámetro 'periodo' al volver atrás
+  $base = function_exists('casanova_portal_base_url') ? casanova_portal_base_url() : home_url('/area-usuario/');
+  $backArgs = ['view' => 'expedientes'];
+  if (!empty($_GET['periodo'])) $backArgs['periodo'] = (int)$_GET['periodo'];
+  
+  $backUrl = add_query_arg($backArgs, $base);
 
   ob_start();
   echo '<div class="casanova-portal">';

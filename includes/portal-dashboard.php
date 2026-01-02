@@ -87,16 +87,27 @@ function casanova_portal_render_dashboard(int $user_id): string {
     }
   }
 
-
-
   // Mensajes (GIAV: comentarios)
   $msg_html = '<p class="casanova-muted">' . esc_html__('No hay mensajes recientes.', 'casanova-portal') . '</p>';
-  if ($idCliente && function_exists('casanova_portal_get_next_trip_expediente')) {
+  
+  // OPTIMIZACIÓN: Reutilizamos el expediente encontrado en el paso 2 ($next['obj'])
+  $e = ($next && isset($next['obj'])) ? $next['obj'] : null;
+
+  // Fallback: solo buscamos si no tenemos expediente y existe la función helper
+  if (!$e && $idCliente && function_exists('casanova_portal_get_next_trip_expediente')) {
     $e = casanova_portal_get_next_trip_expediente($idCliente);
-    $idExpMsg = $e ? (int)($e->IdExpediente ?? $e->Id ?? 0) : 0;
+  }
+
+  if ($e) {
+    $idExpMsg = (int)($e->IdExpediente ?? $e->Id ?? 0);
+    // Aseguramos ID válido
+    if (!$idExpMsg && isset($e->Codigo)) $idExpMsg = (int)$e->Codigo;
+
     if ($idExpMsg && function_exists('casanova_giav_comments_por_expediente')) {
       $n_new = function_exists('casanova_messages_new_count_for_expediente') ? (int) casanova_messages_new_count_for_expediente($user_id, $idExpMsg, 30) : 0;
+      // Usamos la versión optimizada con caché si existe
       $comments = casanova_giav_comments_por_expediente($idExpMsg, 10, 365);
+      
       if (!is_wp_error($comments) && is_array($comments) && !empty($comments)) {
         $latest = $comments[0];
         $b = is_object($latest) ? trim((string)($latest->Body ?? '')) : '';
@@ -106,7 +117,8 @@ function casanova_portal_render_dashboard(int $user_id): string {
         $when = $ts ? sprintf(esc_html__('Hace %s', 'casanova-portal'), human_time_diff($ts, time())) : '';
 
         $msg_html  = '';
-$exp_label = '';
+        $exp_label = '';
+        
         if (is_object($e)) {
           if (function_exists('casanova_portal_expediente_label_from_obj')) {
             $exp_label = casanova_portal_expediente_label_from_obj($e);

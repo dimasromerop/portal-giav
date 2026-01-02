@@ -135,10 +135,26 @@ function casanova_giav_cobros_por_expediente(int $idExpediente, int $idCliente, 
 }
 
 function casanova_giav_cobros_por_expediente_all(int $idExpediente, int $idCliente): array|WP_Error {
+  // Usamos un TTL de 5 minutos (300s). Los pagos no cambian cada segundo.
+  if (function_exists('casanova_cache_remember')) {
+    return casanova_cache_remember(
+      'giav:cobros_all:' . $idExpediente . ':' . $idCliente,
+      300, 
+      function() use ($idExpediente, $idCliente) {
+        return casanova_giav_cobros_por_expediente_all_uncached($idExpediente, $idCliente);
+      }
+    );
+  }
+  return casanova_giav_cobros_por_expediente_all_uncached($idExpediente, $idCliente);
+}
+
+// Renombramos la original a _uncached y la dejamos igual (copia tu lógica interna aquí)
+function casanova_giav_cobros_por_expediente_all_uncached(int $idExpediente, int $idCliente): array|WP_Error {
   $all = [];
   $pageIndex = 0;
 
   while (true) {
+    // Nota: llamamos a la función unitaria (que ya existe en tu código)
     $chunk = casanova_giav_cobros_por_expediente($idExpediente, $idCliente, 100, $pageIndex);
     if (is_wp_error($chunk)) return $chunk;
     if (empty($chunk)) break;

@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * ' . esc_html__('Bonos', 'casanova-portal') . '/Vouchers: listado por expediente con links a preview HTML y PDF.
+ * Bonos / Vouchers: listado por expediente con links a preview HTML y PDF.
  * Shortcode: [casanova_bonos days="3" only_recent="0"]
  *
  * Nota: GIAV es fuente de verdad. Los bonos se consideran "disponibles" cuando el expediente está pagado
@@ -66,9 +66,11 @@ function casanova_bonos_links(int $idExpediente, int $idReserva): array {
 
 /**
  * Devuelve lista de bonos disponibles agrupados por expediente.
+ * OPTIMIZADO: Filtra por fecha para no escanear viajes antiguos (evita N+1 masivo).
  * @return array<int, array{exp:object, items:array<int,array>}>
  */
 function casanova_bonos_available_grouped(int $idCliente): array {
+  // Pedimos un batch razonable de expedientes (50)
   $exps = function_exists('casanova_giav_expedientes_por_cliente')
     ? casanova_giav_expedientes_por_cliente($idCliente, 50, 0)
     : [];
@@ -76,10 +78,25 @@ function casanova_bonos_available_grouped(int $idCliente): array {
   if (is_wp_error($exps) || !is_array($exps)) $exps = [];
 
   $out = [];
+  
+  // FECHA DE CORTE: Solo procesamos viajes que terminaron hace menos de 90 días o son futuros.
+  // Esto previene que un cliente con historial largo tumbe el servidor con llamadas SOAP innecesarias.
+  $corte = strtotime('-90 days');
+
   foreach ($exps as $exp) {
     if (!is_object($exp)) continue;
     $idExp = (int)($exp->IdExpediente ?? $exp->Id ?? 0);
     if ($idExp <= 0) continue;
+
+    // --- OPTIMIZACIÓN DE RENDIMIENTO ---
+    // Si el viaje terminó hace mucho, lo saltamos. 
+    // Ahorramos llamadas pesadas a Reservas_SEARCH y Cobro_SEARCH.
+    $fin = $exp->FechaDesde ?? $exp->FechaHasta ?? $exp->Hasta ?? null;
+    // Solo aplicamos el corte si tenemos fecha de fin. Si no, procesamos por seguridad.
+    if ($fin && strtotime((string)$fin) < $corte) {
+        continue; 
+    }
+    // -----------------------------------
 
     $reservas = function_exists('casanova_giav_reservas_por_expediente')
       ? casanova_giav_reservas_por_expediente($idExp, $idCliente)
@@ -117,10 +134,10 @@ function casanova_bonos_available_grouped(int $idCliente): array {
       // Si está anulada/cancelada, normalmente no tiene sentido ofrecer bono
       $anulada = (int)($r->Anulada ?? 0);
       if ($anulada === 1) continue;
+      
       // Omitir PQ ROOT (paquete contenedor) porque no genera bono
       $tipo = (string)($r->TipoReserva ?? '');
       if ($tipo === 'PQ' && !$tiene_padre_valido($r)) continue;
-
 
       $label = casanova_bonos_service_label($r);
       $dates = casanova_bonos_reserva_dates($r);
@@ -145,7 +162,7 @@ function casanova_bonos_available_grouped(int $idCliente): array {
 }
 
 /**
- * Guarda el primer avistamiento de cada bono por usuario, para badge "' . esc_html__('Nuevo', 'casanova-portal') . '".
+ * Guarda el primer avistamiento de cada bono por usuario, para badge "Nuevo".
  */
 function casanova_bonos_update_seen(int $user_id, array $available_keys): array {
   $seen = get_user_meta($user_id, 'casanova_bonos_seen', true);
@@ -192,6 +209,7 @@ function casanova_bonos_recent_count(int $user_id, int $idCliente, int $days = 3
     });
   }
 
+  // Fallback sin helper de caché
   $groups = casanova_bonos_available_grouped($idCliente);
   $keys = [];
   foreach ($groups as $g) {
@@ -213,7 +231,7 @@ function casanova_bonos_recent_count(int $user_id, int $idCliente, int $days = 3
 
 /**
  * Shortcode listado de bonos.
- * - days: ventana para "' . esc_html__('Nuevo', 'casanova-portal') . 's" (badge por expediente)
+ * - days: ventana para "Nuevos" (badge por expediente)
  * - only_recent: si 1, solo muestra expedientes con algún bono nuevo en esa ventana
  */
 add_shortcode('casanova_bonos', function($atts = []) {

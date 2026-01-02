@@ -18,7 +18,7 @@ if (!defined('CASANOVA_CACHE_ENABLED')) {
 
 if (!defined('CASANOVA_CACHE_TTL')) {
   // Cache corta para evitar desincronizaciones y dolores de cabeza.
-  define('CASANOVA_CACHE_TTL', 90);
+  define('CASANOVA_CACHE_TTL', 600);
 }
 
 if (!defined('CASANOVA_LOG_LEVEL')) {

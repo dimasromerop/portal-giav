@@ -4,6 +4,7 @@
  * El objetivo es que Bricks pueda componer vistas con bloques reutilizables.
  */
 if (!defined('ABSPATH')) exit;
+
 /**
  * Encuentra el próximo expediente con FechaDesde futura.
  */
@@ -29,6 +30,7 @@ function casanova_portal_get_next_trip_expediente(int $idCliente): ?object {
   usort($candidates, fn($a, $b) => $a[0] <=> $b[0]);
   return $candidates[0][1] ?? null;
 }
+
 /**
  * Devuelve una lista de expedientes futuros (ordenados por FechaDesde asc).
  */
@@ -56,6 +58,7 @@ function casanova_portal_get_upcoming_trips(int $idCliente, int $limit = 3): arr
   $out = array_slice($out, 0, $limit);
   return array_map(fn($row) => $row['exp'], $out);
 }
+
 /**
  * Formatea título/código humano para UI.
  */
@@ -69,6 +72,7 @@ function casanova_portal_expediente_label_from_obj($exp): string {
   $id = (int)($exp->IdExpediente ?? $exp->Id ?? 0);
   return $id ? sprintf(esc_html__('Expediente #%s', 'casanova-portal'), $id) : esc_html__('Viaje', 'casanova-portal');
 }
+
 /**
  * Shortcode: card del próximo viaje.
  * Uso: [casanova_proximo_viaje]
@@ -77,28 +81,35 @@ add_shortcode('casanova_proximo_viaje', function($atts){
   $atts = shortcode_atts([
     'variant' => 'card', // card|dashboard|hero|compact|legacy
   ], (array)$atts, 'casanova_proximo_viaje');
+  
   $variant = sanitize_key((string)($atts['variant'] ?? 'card'));
   if ($variant === 'dashboard') $variant = 'card';
+  
   $wrap_class = 'casanova-nexttrip-card casanova-card';
   if ($variant === 'hero') $wrap_class .= ' casanova-nexttrip-card--hero';
   if ($variant === 'compact') $wrap_class .= ' casanova-nexttrip-card--compact';
+  
   if (!is_user_logged_in()) return '';
   $user_id   = (int)get_current_user_id();
   $idCliente = (int)get_user_meta($user_id, 'casanova_idcliente', true);
   if (!$idCliente) return '';
+  
   $exp = casanova_portal_get_next_trip_expediente($idCliente);
   if (!$exp) {
     return '<div class="' . esc_attr($wrap_class) . '"><div class="casanova-nexttrip-card__empty">' . esc_html__('No tienes viajes próximos.', 'casanova-portal') . '</div></div>';
   }
+  
   $idExp = (int)($exp->Id ?? 0);
   $titulo = trim((string)($exp->Titulo ?? ''));
   $codigo = trim((string)($exp->Codigo ?? ''));
+  
   $tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
   $today = new DateTimeImmutable('today', $tz);
   $desde = !empty($exp->FechaDesde) ? (new DateTimeImmutable((string)$exp->FechaDesde, $tz)) : null;
   $hasta = !empty($exp->FechaHasta) ? (new DateTimeImmutable((string)$exp->FechaHasta, $tz)) : null;
   $days_left = $desde ? (int)$today->diff($desde)->format('%a') : 0;
   $rango = casanova_fmt_date_range($exp->FechaDesde ?? null, $exp->FechaHasta ?? null);
+  
   // Totales/pagos (reutiliza lógica existente)
   $reservas = function_exists('casanova_giav_reservas_por_expediente')
     ? casanova_giav_reservas_por_expediente($idExp, $idCliente)
@@ -109,9 +120,46 @@ add_shortcode('casanova_proximo_viaje', function($atts){
   $total = (float)($pago['total_objetivo'] ?? 0);
   $pagado = (float)($pago['pagado'] ?? 0);
   $pendiente = (float)($pago['pendiente_real'] ?? 0);
+  
   $base = function_exists('casanova_portal_base_url') ? casanova_portal_base_url() : home_url('/area-usuario/');
   $detail_url = add_query_arg(['view' => 'expedientes', 'expediente' => $idExp], $base);
+  
+  // CORRECCIÓN: Usamos la URL frontend segura, no admin-post
+  $ics_url = '';
+  if (function_exists('casanova_portal_ics_url')) {
+    $ics_url = casanova_portal_ics_url($idExp);
+  } else {
+    // Fallback manual por si acaso no se ha cargado el include
+    $ics_url = add_query_arg([
+      'casanova_action' => 'download_ics',
+      'expediente'      => (int) $idExp,
+      '_wpnonce'        => wp_create_nonce('casanova_download_ics_' . (int)$idExp),
+    ], $base);
+  }
+
   $headline = $titulo !== '' ? $titulo : ($codigo !== '' ? (sprintf(__('Expediente %s', 'casanova-portal'), $codigo)) : (sprintf(__('Expediente %s', 'casanova-portal'), $idExp)));
+  
+  // Icono SVG
+  $icon_cal = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:4px;position:relative;top:-1px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>';
+
+  // --- Render Legacy (simple text) ---
+  if ($variant === 'legacy') {
+    $date_line = $rango ?: '';
+    $days_text = sprintf(esc_html__('En %s días', 'casanova-portal'), number_format_i18n($days_left));
+
+    $simple  = '<div class="casanova-nexttrip-legacy">';
+    $simple .= '<div class="casanova-nexttrip-legacy__title">' . esc_html($titulo) . '</div>';
+    $simple .= '<div class="casanova-nexttrip-legacy__meta">' . esc_html($date_line) . ' · ' . esc_html($days_text) . '</div>';
+    $simple .= '<div class="casanova-nexttrip-legacy__money">Total: ' . esc_html(casanova_fmt_money($total)) . ' · Pendiente: ' . esc_html(casanova_fmt_money($pendiente)) . '</div>';
+    $simple .= '<div style="margin-top:10px; display:flex; gap:10px; align-items:center;">';
+    $simple .= '  <a class="casanova-nexttrip-legacy__link" href="' . esc_url($detail_url) . '">' . esc_html__('Ver detalle', 'casanova-portal') . '</a>'; 
+    $simple .= '  <a class="casanova-nexttrip-legacy__link" href="' . esc_url($ics_url) . '" style="color:#666;">' . esc_html__('Añadir a calendario', 'casanova-portal') . '</a>'; 
+    $simple .= '</div>';
+    $simple .= '</div>';
+    return $simple;
+  }
+
+  // --- Render Card Normal/Hero ---
   $html  = '<article class="casanova-nexttrip-card">';
   $html .= '  <div class="casanova-nexttrip-card__top">';
   $html .= '    <div class="casanova-nexttrip-card__title">' . esc_html__('Próximo viaje', 'casanova-portal') . '</div>';
@@ -131,32 +179,21 @@ add_shortcode('casanova_proximo_viaje', function($atts){
   $html .= '      <div class="casanova-nexttrip-card__value casanova-nexttrip-card__value--warn">' . esc_html(casanova_fmt_money($pendiente)) . '</div>';
   $html .= '    </div>';
   $html .= '  </div>';
+  
   $html .= '  <div class="casanova-nexttrip-card__cta">';
-  $html .= '    <a class="casanova-btn casanova-btn--primary" href="' . esc_url($detail_url) . '">' . esc_html__('Ver detalle', 'casanova-portal') . '</a>'; 
+  $html .= '    <div style="display:flex; gap:8px;">';
+  $html .= '      <a class="casanova-btn casanova-btn--primary" href="' . esc_url($detail_url) . '">' . esc_html__('Ver detalle', 'casanova-portal') . '</a>'; 
+  $html .= '      <a class="casanova-btn casanova-btn--ghost" href="' . esc_url($ics_url) . '" title="' . esc_attr__('Añadir a calendario', 'casanova-portal') . '" style="padding:10px 12px;">' . $icon_cal . esc_html__('Calendario', 'casanova-portal') . '</a>';
+  $html .= '    </div>';
   $html .= '    <span class="casanova-nexttrip-card__hint">'. esc_html__('Pagado', 'casanova-portal') .': ' . esc_html(casanova_fmt_money($pagado)) . '</span>';
   $html .= '  </div>';
   $html .= '</article>';
-  if ($variant === 'legacy') {
-    // Render simple para usar en sitios donde no encaja una card (compatibilidad/flexibilidad)
-    $simple  = '<div class="casanova-nexttrip-legacy">';
-    $simple .= '<div class="casanova-nexttrip-legacy__title">' . esc_html($titulo) . '</div>';
-    $simple .= '<div class="casanova-nexttrip-legacy__meta">' . esc_html($date_line) . ' · ' . esc_html($days_text) . '</div>';
-    $simple .= '<div class="casanova-nexttrip-legacy__money">Total: ' . esc_html(casanova_fmt_money($total)) . ' · Pendiente: ' . esc_html(casanova_fmt_money($pendiente)) . '</div>';
-    $simple .= '<a class="casanova-nexttrip-legacy__link" href="' . esc_url($detail_url) . '">' . esc_html__('Ver detalle', 'casanova-portal') . '</a>'; 
-    $simple .= '</div>';
-    return $simple;
-  }
+  
   return $html;
 });
+
 /**
  * Card: Estado de pagos (dashboard).
- * - Usa expediente activo si existe (?expediente=) o, si no, el próximo viaje.
- * - No rompe nada: si no hay datos, muestra estado vacío amigable.
- *
- * Uso:
- *   [casanova_card_pagos]
- *   [casanova_card_pagos source="current|next|auto"]
- *   [casanova_card_pagos cta="pagar|detalle|both"]
  */
 add_shortcode('casanova_card_pagos', function($atts) {
   if (!is_user_logged_in()) return '';
@@ -169,6 +206,7 @@ add_shortcode('casanova_card_pagos', function($atts) {
   $idCliente = (int) get_user_meta($user_id, 'casanova_idcliente', true);
   if (!$idCliente) return '';
   $base = function_exists('casanova_portal_base_url') ? casanova_portal_base_url() : home_url('/area-usuario/');
+  
   // Determinar expediente objetivo
   $idExp = 0;
   $qExp = isset($_GET['expediente']) ? (int) $_GET['expediente'] : 0;
@@ -186,9 +224,7 @@ add_shortcode('casanova_card_pagos', function($atts) {
     }
   }
 
-  // Contexto del viaje (Título/Código humano) para que la card sea comprensible.
-  // Importante: inicializar antes de cualquier rama y NO depender de que el expediente
-  // esté en la primera página.
+  // Contexto del viaje
   $exp_label = '';
   $exp_meta_html = '';
   if ($idExp > 0 && function_exists('casanova_portal_expediente_meta')) {
@@ -201,51 +237,6 @@ add_shortcode('casanova_card_pagos', function($atts) {
     $exp_meta_html = '<div class="casanova-actioncard__ctx">'. esc_html__('Para:', 'casanova-portal') . ' <strong>' . esc_html($exp_label) . '</strong></div>';
   }
 
-  // Label humano del viaje (Titulo/Código) para contextualizar acciones
-  $exp_label = '';
-  $exp_obj = null;
-  if (function_exists('casanova_giav_expedientes_por_cliente')) {
-    $list = casanova_giav_expedientes_por_cliente($idCliente, 100, 0);
-    if (is_array($list)) {
-      foreach ($list as $e) {
-        if (!is_object($e)) continue;
-        $eid = (int)($e->IdExpediente ?? $e->Id ?? 0);
-        if ($eid && $eid === (int)$idExp) { $exp_obj = $e; break; }
-      }
-    }
-  }
-  if ($exp_obj) {
-    $exp_label = casanova_portal_expediente_label_from_obj($exp_obj);
-  }
-  // Contexto del expediente (título/código humano) para mostrar en la card
-  $exp_label = '';
-  $exp_meta_html = '';
-  if ($idExp) {
-    if (function_exists('casanova_portal_expediente_meta')) {
-      $meta = casanova_portal_expediente_meta($idCliente, (int)$idExp);
-      if (is_array($meta)) {
-        $exp_label = (string)($meta['label'] ?? '');
-      }
-    }
-    if (!$exp_label && function_exists('casanova_giav_expedientes_por_cliente')) {
-      // Fallback: buscar en la lista de expedientes (primera página)
-      $exps = casanova_giav_expedientes_por_cliente($idCliente, 100, 0);
-      if (!is_wp_error($exps) && is_array($exps)) {
-        foreach ($exps as $e) {
-          $eid = (int)($e->IdExpediente ?? $e->Id ?? 0);
-          if ($eid === (int)$idExp) {
-            $t = trim((string)($e->Titulo ?? ''));
-            $c = trim((string)($e->Codigo ?? ''));
-            $exp_label = $t ? ($c ? ($t . ' (' . $c . ')') : $t) : ($c ? $c : '');
-            break;
-          }
-        }
-      }
-    }
-    if ($exp_label) {
-      $exp_meta_html = '  <div class="casanova-actioncard__ctx">'. esc_html__('Para:', 'casanova-portal') . ' ' . esc_html($exp_label) . '</div>';
-    }
-  }
   if (!$idExp) {
     $html  = '<article class="casanova-paycard casanova-paycard--empty">';
     $html .= '  <div class="casanova-paycard__top">';
@@ -255,17 +246,7 @@ add_shortcode('casanova_card_pagos', function($atts) {
     $html .= '</article>';
     return $html;
   }
-  // Etiqueta del viaje (título / código humano) para textos y CTAs
-  $exp_meta = function_exists('casanova_portal_expediente_meta') ? casanova_portal_expediente_meta($idCliente, $idExp) : ['titulo'=>'','codigo'=>'','label'=>(sprintf(__('Expediente %s', 'casanova-portal'), $idExp))];
-  $exp_titulo = trim((string)($exp_meta['titulo'] ?? ''));
-  $exp_codigo = trim((string)($exp_meta['codigo'] ?? ''));
-  $exp_label  = trim((string)($exp_meta['label'] ?? ''));
-  $exp_meta_html = '';
-  if ($exp_titulo && $exp_codigo) {
-    $exp_meta_html = '<div class="casanova-actioncard__meta">'. esc_html__('Para:', 'casanova-portal') .' <strong>' . esc_html($exp_titulo) . '</strong> <span class="casanova-muted">(' . esc_html($exp_codigo) . ')</span></div>';
-  } else {
-    $exp_meta_html = '<div class="casanova-actioncard__meta">'. esc_html__('Para:', 'casanova-portal') .' <strong>' . esc_html($exp_label) . '</strong></div>';
-  }
+
   // Reservas + cálculo pagos
   $reservas = function_exists('casanova_giav_reservas_por_expediente')
     ? casanova_giav_reservas_por_expediente($idExp, $idCliente, 100, 0)
@@ -285,18 +266,20 @@ add_shortcode('casanova_card_pagos', function($atts) {
   $total     = (float)($pago['total_objetivo'] ?? 0);
   $pagado    = (float)($pago['pagado'] ?? 0);
   $pendiente = (float)($pago['pendiente_real'] ?? 0);
-  // Normalizar
+  
   if ($total < 0) $total = 0;
   if ($pagado < 0) $pagado = 0;
   if ($pendiente < 0) $pendiente = 0;
   $progress = ($total > 0) ? min(100, max(0, round(($pagado / $total) * 100))) : 0;
-  $is_ok = ($total > 0 && $pendiente <= 0.01) || ($total <= 0.01); // tolerancia
+  $is_ok = ($total > 0 && $pendiente <= 0.01) || ($total <= 0.01);
   $status_label = $is_ok ? '' . esc_html__('Todo pagado', 'casanova-portal') . '' : (sprintf(__('Pendiente %s', 'casanova-portal'), casanova_fmt_money($pendiente)));
   $status_class = $is_ok ? 'casanova-paycard__status--ok' : 'casanova-paycard__status--warn';
+  
   $detail_url = add_query_arg(['view' => 'expedientes', 'expediente' => $idExp], $base);
   if (!empty($atts['tab'])) {
     $detail_url .= '#' . preg_replace('/[^a-zA-Z0-9_\-]/', '', (string)$atts['tab']);
   }
+  
   $cta = (string)$atts['cta'];
   $html  = '<article class="casanova-paycard">';
   $html .= '  <div class="casanova-paycard__top">';
@@ -332,13 +315,9 @@ add_shortcode('casanova_card_pagos', function($atts) {
   $html .= '</article>';
   return $html;
 });
+
 /**
  * Card: Próxima acción.
- * Uso: [casanova_card_proxima_accion]
- * Opciones:
- * - source="auto|current|next"
- * - tab_pagos="pagos" (hash/id del tab de pagos)
- * - tab_facturas="facturas" (hash/id del tab de facturas)
  */
 add_shortcode('casanova_card_proxima_accion', function($atts) {
   if (!is_user_logged_in()) return '';
@@ -351,15 +330,16 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
   $idCliente = (int) get_user_meta($user_id, 'casanova_idcliente', true);
   if (!$idCliente) return '';
   $base = function_exists('casanova_portal_base_url') ? casanova_portal_base_url() : home_url('/area-usuario/');
-  // Selección de expedientes a evaluar.
+  
   $qExp = isset($_GET['expediente']) ? (int) $_GET['expediente'] : 0;
   $candidates = [];
 
-  // En dashboard (auto sin expediente en URL) tiene sentido evaluar varios viajes próximos.
+  // OPTIMIZACIÓN: Solo escaneamos 1 viaje futuro si estamos en modo auto (dashboard),
+  // en vez de 3, para que la carga sea más rápida.
   $scan_upcoming = ($atts['source'] === 'next') || ($atts['source'] === 'auto' && !$qExp);
   $upcoming = [];
   if ($scan_upcoming && function_exists('casanova_portal_get_upcoming_trips')) {
-    $upcoming = casanova_portal_get_upcoming_trips($idCliente, 3);
+    $upcoming = casanova_portal_get_upcoming_trips($idCliente, 1); 
   }
   if (!is_array($upcoming)) $upcoming = [];
 
@@ -372,7 +352,6 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
       if ($tid > 0) $candidates[] = $tid;
     }
   } else {
-    // auto con expediente en URL
     if ($qExp) $candidates = [$qExp];
   }
   $candidates = array_values(array_unique(array_filter($candidates)));
@@ -388,7 +367,7 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
     return $html;
   }
 
-  // Iterar por candidatos y elegir la primera acción realmente pendiente.
+  // Elegir la primera acción realmente pendiente
   $chosen = 0;
   $chosen_reservas = [];
   $chosen_total = 0.0;
@@ -408,7 +387,6 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
       $pendiente = (float)($pago['pendiente_real'] ?? ($pago['pendiente'] ?? 0));
       if ($pendiente < 0) $pendiente = 0;
     }
-    // ¿Pendiente? -> elegimos este candidato inmediatamente (prioriza pago)
     if ($pendiente > 0.01) {
       $chosen = (int)$cid;
       $chosen_reservas = is_wp_error($reservas) ? [] : (array)$reservas;
@@ -417,7 +395,6 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
       $chosen_pendiente = $pendiente;
       break;
     }
-    // Si no hay pendiente, miramos facturas como siguiente señal de "acción".
     $facturas = function_exists('casanova_giav_facturas_por_expediente')
       ? casanova_giav_facturas_por_expediente($cid, $idCliente, 50, 0)
       : [];
@@ -430,10 +407,8 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
       $chosen_facturas = $facturas;
       break;
     }
-    // Si tampoco hay facturas, continuamos al siguiente viaje.
   }
 
-  // Si no hay acción pendiente en ninguno, el "contexto" será el primer viaje (si existe).
   if (!$chosen) {
     $chosen = (int)($candidates[0] ?? 0);
   }
@@ -443,7 +418,6 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
   $pagado = $chosen_pagado;
   $pendiente = $chosen_pendiente;
 
-  // Contexto del viaje (Título/Código humano) para que la card sea comprensible.
   $exp_label = '';
   $exp_meta_html = '';
   if ($idExp > 0 && function_exists('casanova_portal_expediente_meta')) {
@@ -456,9 +430,8 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
 
   $detail_url = add_query_arg(['view' => 'expedientes', 'expediente' => $idExp], $base);
 
-  // 1) ¿Hay pendiente de pago?
+  // 1) Pendiente de pago
   if ($pendiente > 0.01) {
-    // ¿Puede pagar depósito? (solo si estamos dentro de fecha límite y no se ha pagado nada previamente)
     $deposit_allowed = false;
     $deposit_amt = 0.0;
     $deposit_effective = false;
@@ -478,7 +451,7 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
     }
     $tab = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string)$atts['tab_pagos']);
     $url_tab = $detail_url . ($tab ? ('#' . $tab) : '');
-    // URL de pago (intermedia) desde frontend para evitar bloqueos a /wp-admin/
+    
     if (function_exists('casanova_portal_pay_expediente_url')) {
       $pay_url = casanova_portal_pay_expediente_url((int)$idExp);
     } else {
@@ -488,11 +461,12 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
         '_wpnonce' => wp_create_nonce('casanova_pay_expediente_' . (int)$idExp),
       ], admin_url('admin-post.php'));
     }
+    
     if ($deposit_effective) {
       $url_dep = add_query_arg(['mode' => 'deposit'], $pay_url);
       $html  = '<article class="casanova-actioncard casanova-actioncard--warn">';
       $html .= '  <div class="casanova-actioncard__top">';
-    $html .= '    <div class="casanova-actioncard__title">' . esc_html__('Qué necesitas hacer ahora', 'casanova-portal') . '</div>';
+      $html .= '    <div class="casanova-actioncard__title">' . esc_html__('Qué necesitas hacer ahora', 'casanova-portal') . '</div>';
       $html .= '    <div class="casanova-actioncard__badge">' . esc_html__('Depósito', 'casanova-portal') . '</div>';
       $html .= '  </div>';
       if ($deadline_label) {
@@ -520,7 +494,7 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
       $html .= '</article>';
       return $html;
     }
-    // Sin depósito: pago pendiente normal
+    // Sin depósito
     $html  = '<article class="casanova-actioncard casanova-actioncard--warn">';
     $html .= '  <div class="casanova-actioncard__top">';
     $html .= '    <div class="casanova-actioncard__title">' . esc_html__('Qué necesitas hacer ahora', 'casanova-portal') . '</div>';
@@ -541,7 +515,8 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
     $html .= '</article>';
     return $html;
   }
-  // 2) ¿Hay facturas?
+  
+  // 2) Facturas
   $facturas = $chosen_facturas;
   if (empty($facturas)) {
     $facturas = function_exists('casanova_giav_facturas_por_expediente')
@@ -574,39 +549,57 @@ add_shortcode('casanova_card_proxima_accion', function($atts) {
     $html .= '</article>';
     return $html;
   }
-  // 3) Todo OK
-  // Si el primer viaje está OK pero hay otro con pendiente, ya lo habríamos elegido arriba.
-  // Si todo está OK en todos, dejamos una nota para no dar sensación de 'nada más'.
+  
+ // 3) Todo OK
   $note_html = '';
-  if (!is_array($upcoming) || empty($upcoming)) {
-    $upcoming = function_exists('casanova_portal_get_upcoming_trips') ? casanova_portal_get_upcoming_trips($idCliente, 2) : [];
+  
+  // CORRECCIÓN: Si hemos llegado aquí, el primer viaje está pagado.
+  // Ahora sí necesitamos saber si hay un segundo viaje. 
+  // Si la lista original tenía menos de 2 (por la optimización), recargamos buscando 2.
+  if (is_array($upcoming) && count($upcoming) < 2) {
+    $upcoming = function_exists('casanova_portal_get_upcoming_trips') 
+      ? casanova_portal_get_upcoming_trips($idCliente, 2) 
+      : [];
   }
+
   if (is_array($upcoming) && count($upcoming) >= 2) {
-    $first = $upcoming[0];
-    $second = $upcoming[1];
-    $first_id = (int)($first->IdExpediente ?? $first->Id ?? 0);
+    $second = $upcoming[1]; // El segundo de la lista
     $second_id = (int)($second->IdExpediente ?? $second->Id ?? 0);
-    if ($first_id && $second_id && $first_id === (int)$idExp) {
-      $label2 = function_exists('casanova_portal_expediente_label_from_obj') ? casanova_portal_expediente_label_from_obj($second) : '' . esc_html__('Otro viaje', 'casanova-portal') . '';
+    
+    if ($second_id && $second_id !== (int)$idExp) {
+      $label2 = function_exists('casanova_portal_expediente_label_from_obj') 
+        ? casanova_portal_expediente_label_from_obj($second) 
+        : esc_html__('Otro viaje', 'casanova-portal');
+        
       $url2 = add_query_arg(['view' => 'expedientes', 'expediente' => $second_id], $base);
-      $pending2 = null;
-      if (function_exists('casanova_giav_reservas_por_expediente') && function_exists('casanova_calc_pago_expediente')) {
-        $res2 = casanova_giav_reservas_por_expediente($second_id, $idCliente, 100, 0);
-        if (!is_wp_error($res2)) {
-          $p2 = casanova_calc_pago_expediente($second_id, $idCliente, (array)$res2);
-          if (is_array($p2)) {
-            $pending2 = (float)($p2['pendiente_real'] ?? ($p2['pendiente'] ?? 0));
-          }
-        }
-      }
+      
+      // Opcional: ver si el segundo tiene pendiente para mostrar el importe
       $extra = '';
-      if (is_float($pending2) && $pending2 > 0.01) {
-        $extra = ' <span class="casanova-actioncard__note-amount">' . esc_html__('Pendiente:', 'casanova-portal') . ' ' . esc_html(number_format_i18n($pending2, 2)) . ' €</span>';
+      if (function_exists('casanova_giav_reservas_por_expediente') && function_exists('casanova_calc_pago_expediente')) {
+         // Aquí sí hacemos la llamada extra, pero SOLO si el usuario no debe nada del primero.
+         $res2 = casanova_giav_reservas_por_expediente($second_id, $idCliente, 100, 0);
+         if (!is_wp_error($res2)) {
+            $p2 = casanova_calc_pago_expediente($second_id, $idCliente, (array)$res2);
+            $pend2 = (float)($p2['pendiente_real'] ?? 0);
+            if ($pend2 > 0.01) {
+               $extra = ' <span class="casanova-actioncard__note-amount">' . sprintf(esc_html__('Pendiente: %s', 'casanova-portal'), casanova_fmt_money($pend2)) . '</span>';
+            }
+         }
       }
-      $note_html = '<div class="casanova-actioncard__note">' . esc_html__('También tienes otro viaje a la vista:', 'casanova-portal') . ' <a href="' . esc_url($url2) . '">' . esc_html($label2) . '</a>.' . $extra . '</div>';
+
+      $note_html = '<div class="casanova-actioncard__note">' . 
+        sprintf(
+          wp_kses_post(__('También tienes otro viaje a la vista: <a href="%s">%s</a>.%s', 'casanova-portal')),
+          esc_url($url2),
+          esc_html($label2),
+          $extra
+        ) . 
+      '</div>';
     }
   }
+
   $html  = '<article class="casanova-actioncard casanova-actioncard--ok">';
+  // ... (resto del renderizado igual)
   $html .= '  <div class="casanova-actioncard__top">';
     $html .= '    <div class="casanova-actioncard__title">' . esc_html__('Qué necesitas hacer ahora', 'casanova-portal') . '</div>';
   $html .= '    <div class="casanova-actioncard__badge">' . esc_html__('Todo listo', 'casanova-portal') . '</div>';

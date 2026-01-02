@@ -32,22 +32,48 @@ function casanova_giav_messages_search(int $idExpediente, ?string $from = null, 
   return $items;
 }
 
-/** Devuelve solo comentarios (EventLogItemType=Comment) ordenados por fecha desc. */
+/**
+ * Devuelve solo comentarios (EventLogItemType=Comment) ordenados por fecha desc.
+ * OPTIMIZADO: Usa caché (transient) para no saturar el Dashboard.
+ */
 function casanova_giav_comments_por_expediente(int $idExpediente, int $limit = 50, int $daysBack = 365) {
+  // Si tenemos el helper de caché, lo usamos (TTL 300s = 5 min)
+  if (function_exists('casanova_cache_remember')) {
+    return casanova_cache_remember(
+      'giav:comments:' . $idExpediente . ':' . $limit . ':' . $daysBack,
+      300,
+      function() use ($idExpediente, $limit, $daysBack) {
+        return casanova_giav_comments_por_expediente_uncached($idExpediente, $limit, $daysBack);
+      }
+    );
+  }
+  // Fallback si no hay caché
+  return casanova_giav_comments_por_expediente_uncached($idExpediente, $limit, $daysBack);
+}
+
+/**
+ * Lógica real síncrona (extraída para poder ser llamada desde la caché).
+ */
+function casanova_giav_comments_por_expediente_uncached(int $idExpediente, int $limit, int $daysBack) {
   $from = date('Y-m-d', strtotime('-' . max(1, (int)$daysBack) . ' days'));
+  
+  // Llama a message search (SOAP)
   $items = casanova_giav_messages_search($idExpediente, $from, null, min(100, max(1, (int)$limit)), 0);
+  
   if (is_wp_error($items)) return $items;
   if (!is_array($items)) return [];
 
   $out = [];
   foreach ($items as $it) {
     if (!is_object($it)) continue;
+    // Filtramos para quedarnos solo con 'Comment' (mensajes legibles)
     $t = (string)($it->EventLogItemType ?? $it->ItemType ?? '');
     if (strcasecmp($t, 'Comment') !== 0) continue;
     $out[] = $it;
   }
 
-  usort($out, function($a,$b){
+  // Ordenar por fecha más reciente primero
+  usort($out, function($a, $b){
     $ta = strtotime((string)($a->CreationDate ?? '')) ?: 0;
     $tb = strtotime((string)($b->CreationDate ?? '')) ?: 0;
     return $tb <=> $ta;
